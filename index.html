@@ -1,0 +1,1314 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>差旅費輔助系統書籤版 V66</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 32px 16px;
+            background: #f3f5f9;
+            font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
+            color: #27313f;
+        }
+        .container {
+            max-width: 980px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+            padding: 36px;
+        }
+        h1 {
+            margin: 0 0 12px;
+            font-size: 30px;
+            text-align: center;
+            color: #2d3e52;
+        }
+        .sub {
+            margin: 0 0 24px;
+            text-align: center;
+            color: #5b6b7b;
+        }
+        .install-box {
+            border: 3px dashed #d35400;
+            border-radius: 12px;
+            background: #fff8f0;
+            padding: 24px;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .bookmark-btn {
+            display: inline-block;
+            padding: 14px 30px;
+            border-radius: 999px;
+            text-decoration: none;
+            color: #fff;
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #d35400, #e67e22);
+            box-shadow: 0 8px 18px rgba(211, 84, 0, 0.35);
+            cursor: move;
+            margin-top: 10px;
+        }
+        .bookmark-btn:hover { transform: translateY(-1px); }
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+        .card {
+            background: #f8fafc;
+            border: 1px solid #e7ecf3;
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+        .tag {
+            display: inline-block;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            color: #fff;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+        .t1 { background: #2980b9; }
+        .t2 { background: #27ae60; }
+        .t3 { background: #8e44ad; }
+        .rule-box {
+            margin-top: 20px;
+            padding: 14px;
+            border-left: 5px solid #16a085;
+            background: #eefaf7;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+        @media (max-width: 900px) {
+            .container { padding: 20px; }
+            .steps { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>差旅費輔助系統書籤版 V66</h1>
+    <p class="sub">支援從「出差事由」直接判讀單程/全程距離，並可一鍵回填 WebITR。</p>
+
+    <div class="install-box">
+        <div>把下面按鈕拖曳到瀏覽器書籤列：</div>
+        <a id="theBookmark" href="#" class="bookmark-btn" onclick="alert('請用拖曳方式加入書籤列');return false;">差旅費助手 V66</a>
+        <div style="margin-top: 10px; color: #d35400; font-weight: 700;">先開 WebITR 或 Google 地圖，再點這個書籤。</div>
+    </div>
+
+    <div class="steps">
+        <div class="card">
+            <span class="tag t1">1. WebITR</span>
+            <div>在差勤頁面點書籤後，按「複製差勤資料」。</div>
+        </div>
+        <div class="card">
+            <span class="tag t2">2. Google 地圖</span>
+            <div>按「貼上差勤資料」，系統會先判讀事由中的單程/全程距離，未判讀到的再用「抓地圖」。</div>
+        </div>
+        <div class="card">
+            <span class="tag t3">3. 一鍵回填</span>
+            <div>在地圖按「一鍵全部確認並貼回」，回到 WebITR 點書籤即可直接「一鍵全部貼回」。</div>
+        </div>
+    </div>
+
+    <div class="rule-box">
+        <b>距離判讀規則：</b><br>
+        1. 事由有「單程 X 公里、全程 Y 公里」時，直接採用。<br>
+        2. 只有單程時，自動以單程 × 2 作為全程。<br>
+        3. 全程有算式（如 10+13+4=27）時，自動扣除最後一段，估算單程為 23。<br>
+        4. 事由沒有距離時，維持原本 Google 地圖抓距離流程。
+    </div>
+</div>
+
+<script>
+const v65Template = String.raw`(function(){
+    var isMap = window.location.href.indexOf('google') > -1 && window.location.href.indexOf('maps') > -1;
+    var V65_PENDING_KEY = 'v65_pending_fill';
+
+    function copyText(str){
+        var el = document.createElement('textarea');
+        el.value = str;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+    }
+
+    function toKmNumber(v){
+        var n = parseFloat(v);
+        if(isNaN(n) || !isFinite(n)) return 0;
+        return parseFloat(n.toFixed(1));
+    }
+
+    function normalizeDistanceText(text){
+        return (text || '')
+            .replace(/（/g, '(').replace(/）/g, ')')
+            .replace(/，/g, ',').replace(/＋/g, '+').replace(/＝/g, '=')
+            .replace(/公里/g, 'km');
+    }
+
+    function detectFormulaMeta(text){
+        var src = normalizeDistanceText(text);
+        var regex = /((?:\\d+(?:\\.\\d+)?(?:\\s*(?:km|k)?\\s*)?\\+\\s*)+\\d+(?:\\.\\d+)?(?:\\s*(?:km|k)?\\s*)?)\\s*=\\s*(\\d+(?:\\.\\d+)?)/ig;
+        var best = null;
+        var m;
+        while((m = regex.exec(src)) !== null){
+            var parts = m[1].match(/\\d+(?:\\.\\d+)?/g) || [];
+            if(parts.length < 2) continue;
+            var nums = parts.map(function(v){ return parseFloat(v); }).filter(function(v){ return !isNaN(v); });
+            if(nums.length < 2) continue;
+            var rhs = toKmNumber(m[2]);
+            var sum = nums.reduce(function(acc, v){ return acc + v; }, 0);
+            var total = rhs > 0 ? rhs : toKmNumber(sum);
+            var oneWay = toKmNumber(total - nums[nums.length - 1]);
+            if(oneWay <= 0) continue;
+            if(!best || nums.length > best.legs){
+                best = { total: total, oneWay: oneWay, legs: nums.length };
+            }
+        }
+        return best;
+    }
+
+    function detectReasonDistance(rawLine, reasonText){
+        var src = normalizeDistanceText((rawLine || '') + ' ' + (reasonText || ''));
+        var oneWayMatch = src.match(/單程[^\\d]{0,8}(\\d+(?:\\.\\d+)?)/i);
+        var fullMatch = src.match(/全程[^\\d]{0,8}(\\d+(?:\\.\\d+)?)/i);
+        var hasOneWay = !!oneWayMatch;
+        var hasFull = !!fullMatch;
+        var oneWay = hasOneWay ? toKmNumber(oneWayMatch[1]) : 0;
+        var full = hasFull ? toKmNumber(fullMatch[1]) : 0;
+        var formula = detectFormulaMeta(src);
+        var method = '';
+
+        if(hasOneWay && !hasFull){
+            full = toKmNumber(oneWay * 2);
+            method = 'oneway-double';
+        } else if(!hasOneWay && hasFull){
+            if(formula && formula.oneWay > 0){
+                oneWay = formula.oneWay;
+                if(full <= 0) full = formula.total;
+                method = 'formula-minus-last';
+            } else {
+                oneWay = toKmNumber(full / 2);
+                method = 'full-half';
+            }
+        } else if(!hasOneWay && !hasFull && formula && formula.oneWay > 0){
+            oneWay = formula.oneWay;
+            full = formula.total;
+            method = 'formula-minus-last';
+        } else if(hasOneWay && hasFull){
+            method = 'explicit-both';
+        }
+
+        var ready = oneWay > 0;
+        var isRound = hasOneWay && !hasFull;
+        var badge = '';
+        if(method === 'oneway-double') badge = '單程x2';
+        else if(method === 'formula-minus-last') badge = '算式扣末段';
+        else if(method === 'full-half') badge = '全程/2推估';
+        else if(method === 'explicit-both') badge = '事由已含里程';
+
+        return {
+            ready: ready,
+            headingKm: ready ? oneWay : 0,
+            totalKm: ready ? (full > 0 ? full : toKmNumber(oneWay * 2)) : 0,
+            lastLegKm: ready ? toKmNumber(Math.max(0, (full > 0 ? full : toKmNumber(oneWay * 2)) - oneWay)) : 0,
+            isRound: ready ? isRound : true,
+            fromReason: ready,
+            method: method,
+            badge: badge
+        };
+    }
+
+    function isLikelyTripRow(text){
+        var t = String(text || '').replace(/\s+/g, ' ').trim();
+        if(!t) return false;
+
+        var hasDate = /\d{1,3}[\/\-]\d{1,2}(?:[\/\-]\d{1,2})?/.test(t);
+        var timeTokens = t.match(/\d{1,2}:\d{2}/g) || [];
+        var hasAtLeastTwoTimes = timeTokens.length >= 2;
+        if(!hasDate || !hasAtLeastTwoTimes) return false;
+
+        var strongNoise = /(出勤時數|上班卡|下班卡|刷卡紀錄|發送人|系統通知|已讀|刪除|簽核流程|訊息中心|公告)/i;
+        if(strongNoise.test(t)) return false;
+        return true;
+    }
+
+    function normalizeTripRows(raw){
+        var seen = {};
+        return (raw || [])
+            .map(function(v){ return String(v || '').replace(/\s+/g, ' ').trim(); })
+            .filter(function(v){ return isLikelyTripRow(v); })
+            .filter(function(v){
+                if(seen[v]) return false;
+                seen[v] = true;
+                return true;
+            });
+    }
+
+    function normalizeLine(v){
+        return String(v || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function containsDateAndTime(text){
+        var t = normalizeLine(text);
+        var hasDate = /\d{1,3}[\/\-]\d{1,2}(?:[\/\-]\d{1,2})?/.test(t);
+        var hasTime = /\d{1,2}:\d{2}/.test(t);
+        return hasDate && hasTime;
+    }
+
+    function extractTripCandidatesFromPage(){
+        var out = [];
+        var seen = {};
+        function add(v){
+            var t = normalizeLine(v);
+            if(!t) return;
+            if(!containsDateAndTime(t)) return;
+            if(seen[t]) return;
+            seen[t] = true;
+            out.push(t);
+        }
+
+        var rowSelectors = 'tr, [role="row"]';
+        try {
+            Array.from(document.querySelectorAll(rowSelectors)).forEach(function(el){
+                if(!el) return;
+                if(el.closest('#v65-copilot, #v65-itr')) return;
+                add(el.innerText || el.textContent || '');
+            });
+        } catch(_) {}
+
+        if(out.length === 0){
+            try {
+                Array.from(document.querySelectorAll('li, .row, .grid-row, .table-row')).forEach(function(el){
+                    if(!el) return;
+                    if(el.closest('#v65-copilot, #v65-itr')) return;
+                    add(el.innerText || el.textContent || '');
+                });
+            } catch(_) {}
+        }
+
+        return out;
+    }
+
+    function deriveLastLegKm(headingKm, totalKm){
+        var h = toKmNumber(headingKm);
+        var t = toKmNumber(totalKm);
+        if(!(h > 0) || !(t > h)) return 0;
+        return toKmNumber(t - h);
+    }
+
+    function syncKmByMode(t, keepExistingFull){
+        if(!t) return;
+        t.headingKm = toKmNumber(t.headingKm);
+        t.totalKm = toKmNumber(t.totalKm);
+        t.baseFullKm = toKmNumber(t.baseFullKm);
+        t.lastLegKm = toKmNumber(t.lastLegKm);
+
+        if(t.lastLegKm <= 0){
+            if(t.baseFullKm > t.headingKm){
+                t.lastLegKm = deriveLastLegKm(t.headingKm, t.baseFullKm);
+            } else if(t.totalKm > t.headingKm){
+                t.lastLegKm = deriveLastLegKm(t.headingKm, t.totalKm);
+            }
+        }
+
+        if(t.isRound){
+            t.totalKm = toKmNumber(t.headingKm * 2);
+            return;
+        }
+
+        if(t.lastLegKm > 0){
+            t.totalKm = toKmNumber(t.headingKm + t.lastLegKm);
+            return;
+        }
+
+        if(keepExistingFull && t.totalKm > 0){
+            t.totalKm = toKmNumber(t.totalKm);
+            return;
+        }
+
+        if(t.baseFullKm > 0){
+            t.totalKm = toKmNumber(t.baseFullKm);
+            return;
+        }
+
+        t.totalKm = toKmNumber(t.headingKm);
+    }
+
+    function parseTrips(raw){
+        var strictRows = normalizeTripRows(raw);
+        if(strictRows.length > 0) raw = strictRows;
+        else {
+            raw = (raw || []).map(function(v){ return normalizeLine(v); }).filter(Boolean);
+        }
+        return raw.map(function(r, i){
+            var m = r.match(/(\\d{1,3}[\\/\\-]\\d{1,2}(?:[\\/\\-]\\d{1,2})?).*?(\\d{1,2}:\\d{2})\\s*[~～\\-]\\s*(?:\\d{1,3}[\\/\\-]\\d{1,2}(?:[\\/\\-]\\d{1,2})?)?.*?(\\d{1,2}:\\d{2})/);
+            var dateText = '';
+            var startTime = '';
+            var endTime = '';
+            if(m){
+                dateText = m[1];
+                startTime = m[2];
+                endTime = m[3];
+            } else {
+                var dateMatch = r.match(/\\d{1,3}[\\/\\-]\\d{1,2}(?:[\\/\\-]\\d{1,2})?/);
+                var times = r.match(/\\d{1,2}:\\d{2}/g) || [];
+                dateText = dateMatch ? dateMatch[0] : '--';
+                startTime = times[0] || '';
+                endTime = times[1] || times[0] || '';
+            }
+            var vehicle = 'car';
+            if(/機車|摩托|scooter/i.test(r)) vehicle = 'scooter';
+            else if(/公務車|official/i.test(r)) vehicle = 'official';
+            else if(/汽車|自用車|自小客|car/i.test(r)) vehicle = 'car';
+
+            var reason = r.replace(/^\\d+\\s*[.、)]?\\s*/, '').trim();
+            var pIdx = reason.lastIndexOf(')');
+            if(pIdx > -1 && pIdx < reason.length - 1) reason = reason.substring(pIdx + 1).trim();
+
+            var tStr = (startTime && endTime) ? (startTime + '~' + endTime) : '';
+            var duration = 0;
+            if(startTime && endTime){
+                var t1 = new Date('2000/01/01 ' + startTime);
+                var t2 = new Date('2000/01/01 ' + endTime);
+                duration = (t2 - t1) / 36e5;
+                if(duration < 0) duration += 24;
+            }
+
+            var kmMeta = detectReasonDistance(r, reason);
+            return {
+                id: i,
+                date: dateText || '--',
+                timeStr: tStr,
+                duration: duration,
+                vehicle: vehicle,
+                reason: reason,
+                rawReason: reason,
+                headingKm: kmMeta.headingKm,
+                totalKm: kmMeta.totalKm,
+                baseFullKm: kmMeta.totalKm,
+                lastLegKm: kmMeta.lastLegKm,
+                isRound: kmMeta.isRound,
+                carFee: 0,
+                scooterFee: 0,
+                finalMisc: 0,
+                noteText: '',
+                isCapped: false,
+                kmFromReason: kmMeta.fromReason,
+                kmRule: kmMeta.method,
+                kmBadge: kmMeta.badge
+            };
+        });
+    }
+
+    function recalcAll(tripData){
+        var days = {};
+        tripData.forEach(function(t){
+            if(!days[t.date]) days[t.date] = { maxHeading: 0, trips: [] };
+            if(t.headingKm > days[t.date].maxHeading) days[t.date].maxHeading = t.headingKm;
+            days[t.date].trips.push(t);
+        });
+
+        Object.keys(days).forEach(function(k){
+            var d = days[k];
+            var maxKm = d.maxHeading;
+            var dailyCap = 0;
+            if(maxKm >= 60) dailyCap = 400;
+            else if(maxKm >= 30) dailyCap = 300;
+            else if(maxKm >= 5) dailyCap = 200;
+
+            d.trips.forEach(function(t){
+                var tripRate = 0;
+                if(t.headingKm >= 60) tripRate = 400;
+                else if(t.headingKm >= 30) tripRate = 300;
+                else if(t.headingKm >= 5) tripRate = 200;
+                t.calcMisc = (t.duration <= 4) ? (tripRate / 2) : tripRate;
+                t.finalMisc = t.calcMisc;
+                t.isCapped = false;
+            });
+
+            var total = d.trips.reduce(function(acc, t){ return acc + t.finalMisc; }, 0);
+            var excess = total - dailyCap;
+            if(excess > 0){
+                for(var i = d.trips.length - 1; i >= 0; i--){
+                    if(excess <= 0) break;
+                    var trip = d.trips[i];
+                    if(trip.finalMisc > 0){
+                        var deduct = Math.min(trip.finalMisc, excess);
+                        trip.finalMisc -= deduct;
+                        excess -= deduct;
+                        trip.isCapped = true;
+                    }
+                }
+            }
+        });
+
+        tripData.forEach(function(t){
+            syncKmByMode(t, true);
+            var totalKm = t.totalKm > 0 ? t.totalKm : t.headingKm;
+            t.calcCarKm = totalKm;
+            t.noteText = '單程' + t.headingKm + 'KM/全程' + totalKm + 'KM';
+            if(t.kmFromReason) t.noteText += '/事由';
+            t.carFee = t.vehicle === 'car' ? Math.floor(totalKm * 3) : 0;
+            t.scooterFee = t.vehicle === 'scooter' ? Math.floor(totalKm * 2) : 0;
+        });
+    }
+
+    function buildExportData(tripData){
+        if(tripData.length === 0) return null;
+        var incomplete = tripData.filter(function(t){ return t.headingKm <= 0; });
+        if(incomplete.length > 0){
+            if(!confirm('尚有 ' + incomplete.length + ' 筆未抓距離，是否仍要輸出？')) return null;
+        }
+        recalcAll(tripData);
+        return tripData.map(function(t){
+            return {
+                rawReason: t.rawReason,
+                reasonKey: (t.rawReason || '').replace(/\\s+/g, '').substring(0, 24),
+                note: t.noteText,
+                car: t.carFee,
+                scooter: t.scooterFee,
+                misc: t.finalMisc
+            };
+        });
+    }
+
+    function sleep(ms){
+        return new Promise(function(resolve){ setTimeout(resolve, ms); });
+    }
+
+    function isVisible(el){
+        if(!el) return false;
+        if(el.closest('#v65-copilot, #v65-itr')) return false;
+        var rect = el.getBoundingClientRect();
+        var style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    }
+
+    function getElementText(el){
+        if(!el) return '';
+        return [
+            el.getAttribute('aria-label') || '',
+            el.getAttribute('title') || '',
+            el.innerText || '',
+            el.textContent || ''
+        ].join(' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function tryClick(el){
+        if(!isVisible(el)) return false;
+        try {
+            el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        } catch(_) {}
+        try { el.click(); return true; } catch(_) {}
+        try {
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return true;
+        } catch(_) {}
+        return false;
+    }
+
+    function findFirstRouteCard(scope){
+        if(!scope) return null;
+        var candidates = Array.from(scope.querySelectorAll('button, [role="button"], div[role="listitem"], div'))
+            .filter(function(el){
+                if(!isVisible(el)) return false;
+                var txt = getElementText(el);
+                return /(公里|km)/i.test(txt) && /(分鐘|min|小時|hr)/i.test(txt);
+            });
+        return candidates.length > 0 ? candidates[0] : null;
+    }
+
+    function findButtonsByKeyword(scope, keywordRegex){
+        if(!scope) return [];
+        return Array.from(scope.querySelectorAll('button, [role="button"], div[role="button"], span[role="button"]'))
+            .filter(function(el){
+                if(!isVisible(el)) return false;
+                var txt = getElementText(el);
+                return txt && keywordRegex.test(txt);
+            });
+    }
+
+    function parseLooseNumber(v){
+        var s = String(v || '').replace(/[，,]/g, '').trim();
+        var n = parseFloat(s);
+        return (!isNaN(n) && isFinite(n)) ? n : 0;
+    }
+
+    function collectKmFromText(text){
+        var src = String(text || '');
+        src = src.replace(/([\d]+(?:[.,]\d+)?)\s*公里\s*([\d]+(?:[.,]\d+)?)\s*公尺/ig, function(_, km, meter){
+            var merged = parseLooseNumber(km) + parseLooseNumber(meter) / 1000;
+            return String(merged) + '公里';
+        });
+
+        var out = [];
+        var regex = /([\d]+(?:[.,]\d+)?)\s*(公里|km|公尺|m|英里|mi)/ig;
+        var m;
+        while((m = regex.exec(src)) !== null){
+            var n = parseLooseNumber(m[1]);
+            var unit = String(m[2] || '').toLowerCase();
+            if(!(n > 0)) continue;
+            if(unit === '公尺' || unit === 'm') n = n / 1000;
+            if(unit === '英里' || unit === 'mi') n = n * 1.60934;
+            n = toKmNumber(n);
+            if(n > 0 && n <= 500) out.push(n);
+        }
+        return out;
+    }
+
+    function getMapScope(){
+        var candidates = [
+            document.querySelector('#pane'),
+            document.querySelector('#QA0Szd'),
+            document.querySelector('[aria-label*="路線"]'),
+            document.querySelector('[aria-label*="Directions"]'),
+            document.querySelector('#box'),
+            document.querySelector('[role="main"]'),
+            document.body
+        ].filter(Boolean);
+
+        var best = document.body;
+        var bestCount = 0;
+        candidates.forEach(function(el){
+            var txt = '';
+            try { txt = el.innerText || ''; } catch(_) { txt = ''; }
+            var count = (txt.match(/(?:公里|km)/ig) || []).length;
+            if(count > bestCount){
+                best = el;
+                bestCount = count;
+            }
+        });
+        return best || document.body;
+    }
+
+    function parseKmValues(text){
+        var src = String(text || '');
+        var matches = src.match(/[\d.]+\s*(?:公里|km)/ig) || [];
+        return matches
+            .map(function(seg){ return parseFloat(seg); })
+            .filter(function(v){ return !isNaN(v) && isFinite(v) && v > 0 && v <= 500; });
+    }
+
+    function pickBestKmFromText(text, preferLineWithTime){
+        var src = String(text || '');
+        var lines = src.split(/\n+/).map(function(v){ return v.trim(); }).filter(Boolean);
+        if(preferLineWithTime){
+            for(var i = 0; i < lines.length; i++){
+                var line = lines[i];
+                if(!/(公里|km)/i.test(line)) continue;
+                if(!/(分鐘|min|小時|hr)/i.test(line)) continue;
+                var lineVals = parseKmValues(line);
+                if(lineVals.length > 0) return toKmNumber(lineVals[0]);
+            }
+        }
+        var values = parseKmValues(src);
+        return values.length > 0 ? toKmNumber(values[0]) : 0;
+    }
+
+    function extractDistanceFromRouteCard(scope){
+        var card = findFirstRouteCard(scope);
+        if(!card) return null;
+        var km = pickBestKmFromText(getElementText(card), true);
+        if(km <= 0) return null;
+        return { heading: km, total: km, source: 'route-card' };
+    }
+
+    function findDetailToggle(scope, mode){
+        if(!scope) return null;
+        var candidates = findButtonsByKeyword(scope, /(詳細|步驟|明細|details?|steps?|路線|導航|directions?|route|顯示|展開|show|open|收合|隱藏|hide|collapse)/i)
+            .filter(function(el){
+                var txt = getElementText(el);
+                if(!txt) return false;
+                var isOpenStyle = /(顯示|展開|show|open)/i.test(txt);
+                var isCloseStyle = /(收合|隱藏|hide|collapse|less|返回)/i.test(txt);
+                if(mode === 'open') return isOpenStyle || /(詳細|步驟|明細|details?|steps?)/i.test(txt);
+                if(mode === 'close') return isCloseStyle;
+                return true;
+            });
+        return candidates.length > 0 ? candidates[0] : null;
+    }
+
+    async function expandFirstRouteDetail(){
+        var scope = document.querySelector('[role="main"], #pane, #box') || document.body;
+        var state = {
+            acted: false,
+            routeCard: null,
+            clickedDetail: false
+        };
+
+        var routeCard = findFirstRouteCard(scope);
+        if(routeCard){
+            state.routeCard = routeCard;
+            state.acted = tryClick(routeCard) || state.acted;
+            await sleep(250);
+        }
+
+        for(var attempt = 0; attempt < 3; attempt++){
+            var detailBtn = findDetailToggle(scope, 'open');
+            if(!detailBtn) break;
+            if(tryClick(detailBtn)){
+                state.acted = true;
+                state.clickedDetail = true;
+                await sleep(260 + attempt * 120);
+            } else {
+                break;
+            }
+        }
+
+        return state;
+    }
+
+    function findBackButton(scope){
+        var list = findButtonsByKeyword(scope, /(返回|回到|back|go back|關閉路線|close directions)/i);
+        return list.length > 0 ? list[0] : null;
+    }
+
+    async function restoreMapToCollapsed(state){
+        var scope = document.querySelector('[role="main"], #pane, #box') || document.body;
+        var acted = false;
+        if(state && state.clickedDetail){
+            var closeDetail = findDetailToggle(scope, 'close');
+            if(closeDetail){
+                acted = tryClick(closeDetail) || acted;
+                await sleep(180);
+            }
+        }
+
+        var backBtn = findBackButton(scope);
+        if(backBtn){
+            acted = tryClick(backBtn) || acted;
+            await sleep(180);
+        }
+
+        if(!acted && state && state.routeCard && isVisible(state.routeCard)){
+            acted = tryClick(state.routeCard) || acted;
+            if(acted) await sleep(120);
+        }
+
+        return acted;
+    }
+
+    function collectKmSequenceFromScope(scope){
+        if(!scope) return [];
+        var txt = '';
+        try { txt = scope.innerText || scope.textContent || ''; } catch(_) { txt = ''; }
+        return collectKmFromText(txt);
+    }
+
+    function extractTopMinusBottomByDetailLines(scope){
+        if(!scope) return null;
+        var raw = '';
+        try { raw = scope.innerText || scope.textContent || ''; } catch(_) { raw = ''; }
+        if(!raw) return null;
+
+        var lines = raw.split(/\n+/).map(function(v){ return v.trim(); }).filter(Boolean);
+        if(lines.length === 0) return null;
+
+        var hasDist = /(公里|km)/i;
+        var hasTime = /(?:\d+\s*(?:小時|hr|hour|hours)|\d+\s*(?:分鐘|分|min|mins|minute|minutes))/i;
+        var hasHour = /(小時|hr|hour|hours)/i;
+        var detailHint = /(途經|據路況|最快路線|收費路段|toll|fastest route|usually|via|this route)/i;
+        var stepHint = /(|從|沿|走|繼續|前往|駛入|出口|轉|head|take|keep|continue|merge|exit|toward)/i;
+
+        function pickKmFromLine(line){
+            var text = String(line || '');
+            var m1 = text.match(/\(([\d]+(?:[.,]\d+)?)\s*(?:公里|km)\)/i);
+            if(m1 && m1[1]) return toKmNumber(parseLooseNumber(m1[1]));
+            var m2 = text.match(/([\d]+(?:[.,]\d+)?)\s*(?:公里|km)/i);
+            if(m2 && m2[1]) return toKmNumber(parseLooseNumber(m2[1]));
+            return 0;
+        }
+
+        var timed = [];
+        for(var i = 0; i < lines.length; i++){
+            var line = lines[i];
+            if(!hasDist.test(line) || !hasTime.test(line)) continue;
+            var km = pickKmFromLine(line);
+            if(km <= 0) continue;
+            timed.push({
+                idx: i,
+                km: km,
+                hasHour: hasHour.test(line),
+                line: line
+            });
+        }
+        if(timed.length === 0) return null;
+
+        var total = 0;
+        var totalIdx = -1;
+
+        for(var th = 0; th < timed.length; th++){
+            if(!timed[th].hasHour) continue;
+            var lookAhead = lines.slice(timed[th].idx + 1, timed[th].idx + 6).join(' ');
+            if(detailHint.test(lookAhead)){
+                total = timed[th].km;
+                totalIdx = timed[th].idx;
+                break;
+            }
+        }
+        if(total <= 0){
+            for(var t1 = 0; t1 < timed.length; t1++){
+                if(!timed[t1].hasHour) continue;
+                total = timed[t1].km;
+                totalIdx = timed[t1].idx;
+                break;
+            }
+        }
+        if(total <= 0){
+            total = timed[0].km;
+            totalIdx = timed[0].idx;
+        }
+        if(total <= 0) return null;
+
+        function hasStepContext(lineIdx){
+            var from = Math.max(0, lineIdx - 3);
+            var to = Math.min(lines.length - 1, lineIdx);
+            for(var p = from; p <= to; p++){
+                if(stepHint.test(lines[p])) return true;
+            }
+            return false;
+        }
+
+        var bottomLeg = 0;
+        var bottomIdx = -1;
+        for(var rev = timed.length - 1; rev >= 0; rev--){
+            var ent = timed[rev];
+            if(ent.idx === totalIdx) continue;
+            if(!(ent.km > 0) || ent.km === total || ent.km >= total) continue;
+            if(!hasStepContext(ent.idx)) continue;
+            bottomLeg = ent.km;
+            bottomIdx = ent.idx;
+            break;
+        }
+        if(bottomLeg <= 0){
+            for(var rev2 = timed.length - 1; rev2 >= 0; rev2--){
+                var ent2 = timed[rev2];
+                if(ent2.idx === totalIdx) continue;
+                if(!(ent2.km > 0) || ent2.km === total || ent2.km >= total) continue;
+                bottomLeg = ent2.km;
+                bottomIdx = ent2.idx;
+                break;
+            }
+        }
+
+        if(bottomLeg > 0){
+            for(var prev = timed.length - 1; prev >= 0; prev--){
+                var prevEnt = timed[prev];
+                if(prevEnt.idx >= bottomIdx) continue;
+                if(!prevEnt.hasHour) continue;
+                if(!(prevEnt.km > bottomLeg)) continue;
+                total = prevEnt.km;
+                totalIdx = prevEnt.idx;
+                break;
+            }
+        }
+
+        var heading = total;
+        if(bottomLeg > 0){
+            heading = toKmNumber(total - bottomLeg);
+            if(heading <= 0) heading = total;
+        }
+
+        return {
+            heading: heading,
+            total: toKmNumber(total),
+            bottomLeg: toKmNumber(bottomLeg),
+            orderedKmCount: timed.length,
+            source: 'detail-top-minus-bottom'
+        };
+    }
+
+    function extractDistanceFromMapText(options){
+        options = options || {};
+        var requireBottomLeg = !!options.requireBottomLeg;
+        var strictDetail = options.strictDetail !== false;
+
+        var rawScopes = [
+            document.querySelector('#pane'),
+            document.querySelector('#QA0Szd'),
+            document.querySelector('[role="main"]'),
+            getMapScope(),
+            document.body
+        ].filter(Boolean);
+        var scopes = [];
+        for(var rs = 0; rs < rawScopes.length; rs++){
+            if(scopes.indexOf(rawScopes[rs]) === -1) scopes.push(rawScopes[rs]);
+        }
+
+        for(var ds = 0; ds < scopes.length; ds++){
+            var byDetail = extractTopMinusBottomByDetailLines(scopes[ds]);
+            if(!byDetail || !(byDetail.heading > 0)) continue;
+            if(requireBottomLeg && !(byDetail.bottomLeg > 0 && byDetail.total > byDetail.bottomLeg)) continue;
+            return byDetail;
+        }
+
+        if(strictDetail) return null;
+
+        var values = [];
+        for(var s = 0; s < scopes.length; s++){
+            values = collectKmSequenceFromScope(scopes[s]);
+            if(values.length >= 2) break;
+            if(values.length > 0 && s === scopes.length - 1) break;
+        }
+        if(values.length === 0) return null;
+
+        var total = toKmNumber(values[0]);
+        var maxV = 0;
+        for(var mx = 0; mx < values.length; mx++){
+            if(values[mx] > maxV) maxV = values[mx];
+        }
+        if(maxV > 0 && (total <= 0 || total < maxV * 0.6)) total = toKmNumber(maxV);
+        if(total <= 0) return null;
+
+        var bottomLeg = 0;
+        for(var i = values.length - 1; i >= 1; i--){
+            var v = toKmNumber(values[i]);
+            if(v > 0 && v < total){
+                bottomLeg = v;
+                break;
+            }
+        }
+        if(bottomLeg <= 0){
+            for(var j = values.length - 1; j >= 1; j--){
+                var vb = toKmNumber(values[j]);
+                if(vb > 0 && vb !== total){
+                    bottomLeg = vb;
+                    break;
+                }
+            }
+        }
+
+        var heading = total;
+        if(bottomLeg > 0){
+            heading = toKmNumber(total - bottomLeg);
+            if(heading <= 0) heading = total;
+        }
+
+        return {
+            heading: heading,
+            total: total,
+            bottomLeg: bottomLeg,
+            orderedKmCount: values.length,
+            source: 'top-minus-bottom'
+        };
+    }
+    if(isMap){
+        var oldMap = document.getElementById('v65-copilot');
+        if(oldMap) document.body.removeChild(oldMap);
+
+        var box = document.createElement('div');
+        box.id = 'v65-copilot';
+        Object.assign(box.style, {
+            position: 'fixed', top: '10px', right: '10px', width: '440px',
+            backgroundColor: 'white', border: '3px solid #8e44ad', zIndex: '2147483647',
+            borderRadius: '8px', padding: '10px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+            fontFamily: 'Arial, sans-serif', maxHeight: '90vh', overflowY: 'auto'
+        });
+
+        var html = '';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:5px;">';
+        html += '<h3 style="margin:0;color:#8e44ad;font-size:16px;">差旅費地圖助手 V66</h3>';
+        html += '<button id="v65-close" style="background:none;border:none;font-size:18px;cursor:pointer;color:#999;">&times;</button>';
+        html += '</div>';
+        html += '<div id="v65-list" style="min-height:50px;"></div>';
+        html += '<div style="margin-top:10px;display:flex;gap:5px;">';
+        html += '<button id="v65-paste" style="flex:1;padding:10px;background:#34495e;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">貼上差勤資料</button>';
+        html += '<button id="v65-export" style="flex:1;padding:10px;background:#e67e22;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">耶!我填完了!</button>';
+        html += '</div>';
+        html += '<button id="v65-confirm-all" style="width:100%;margin-top:6px;padding:10px;background:#16a085;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">一鍵複製不用看了我有自信</button>';
+
+        box.innerHTML = html;
+        document.body.appendChild(box);
+
+        var tripData = [];
+
+        function render(){
+            var list = document.getElementById('v65-list');
+            if(tripData.length === 0){
+                list.innerHTML = '<div style="text-align:center;color:#999;padding:20px;">先按「貼上差勤資料」</div>';
+                return;
+            }
+
+            list.innerHTML = '';
+            tripData.forEach(function(t, i){
+                var isDone = t.headingKm > 0;
+                var autoReady = isDone && t.kmFromReason;
+                var border = isDone ? (autoReady ? '5px solid #f39c12' : '5px solid #27ae60') : '5px solid #e74c3c';
+                var bg = isDone ? (autoReady ? '#fff8e8' : '#f0fbf5') : '#fff5f5';
+
+                var row = document.createElement('div');
+                row.style.cssText = 'background:' + bg + ';border:1px solid #ccc;border-left:' + border + ';padding:10px;margin-bottom:8px;border-radius:4px;box-shadow:0 2px 5px rgba(0,0,0,0.05);text-align:left;';
+
+                var headerHtml = '';
+                headerHtml += '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:5px;">';
+                headerHtml += '<div style="font-weight:bold;font-size:13px;color:#2c3e50;line-height:1.4;word-break:break-all;flex:1;">' + t.date + ' ' + t.reason;
+                if(autoReady){
+                    headerHtml += '<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;">';
+                    headerHtml += '<span style="display:inline-block;background:#f39c12;color:#fff;font-size:10px;border-radius:10px;padding:1px 6px;">可直接計算</span>';
+                    if(t.kmBadge){
+                        headerHtml += '<span style="display:inline-block;background:#fff3cd;color:#8a6d3b;font-size:10px;border:1px solid #f6d58d;border-radius:10px;padding:1px 6px;">' + t.kmBadge + '</span>';
+                    }
+                    headerHtml += '</div>';
+                }
+                headerHtml += '</div>';
+                headerHtml += '<button id="v65-btn-cp-' + i + '" title="複製事由" style="margin-left:5px;background:none;border:1px solid #ccc;border-radius:3px;cursor:pointer;padding:2px 5px;">📋</button>';
+                headerHtml += '</div>';
+
+                var actionHtml = '';
+                actionHtml += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+                var modeBtnText = t.isRound ? '往返 x2' : '依全程';
+                var modeBtnColor = t.isRound ? '#3498db' : '#27ae60';
+                actionHtml += '<button id="v65-btn-md-' + i + '" style="font-size:11px;background:' + modeBtnColor + ';color:white;border:none;padding:4px 8px;border-radius:15px;cursor:pointer;min-width:80px;">' + modeBtnText + '</button>';
+
+                var dispKm = t.headingKm > 0 ? (t.headingKm + ' KM') : '--';
+                actionHtml += '<div style="display:flex;align-items:center;gap:5px;">';
+                actionHtml += '<span style="font-size:12px;color:#555;font-weight:bold;" title="單程距離">' + dispKm + '</span>';
+                if(t.headingKm > 0){
+                    actionHtml += '<button id="v65-btn-ed-' + i + '" title="手動修正距離" style="background:none;border:1px solid #ccc;border-radius:50%;cursor:pointer;width:20px;height:20px;font-size:10px;line-height:16px;padding:0;color:#555;">✎</button>';
+                }
+                actionHtml += '</div>';
+                actionHtml += '<button id="v65-btn-gb-' + i + '" style="background:' + (isDone ? '#95a5a6' : '#c0392b') + ';color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px;">抓地圖</button>';
+                actionHtml += '</div>';
+
+                if(isDone){
+                    var miscFeeStyle = t.isCapped ? 'color:#d35400;font-weight:bold;' : 'color:#555;';
+                    var miscFeeText = t.isCapped ? (t.finalMisc + ' (已上限)') : t.finalMisc;
+                    var transportFee = t.vehicle === 'car' ? t.carFee : (t.vehicle === 'scooter' ? t.scooterFee : 0);
+                    var transportLabel = t.vehicle === 'car' ? '汽車' : (t.vehicle === 'scooter' ? '機車' : '公務車');
+                    actionHtml += '<div style="margin-top:5px;padding-top:5px;border-top:1px dashed #ccc;font-size:11px;color:#555;display:flex;justify-content:space-between;">';
+                    actionHtml += '<span>' + transportLabel + ' $' + transportFee + '</span>';
+                    actionHtml += '<span style="' + miscFeeStyle + '">雜費 $' + miscFeeText + ' <span style="font-weight:normal;color:#999;font-size:10px;">(' + t.duration.toFixed(1) + 'hr)</span></span>';
+                    actionHtml += '</div>';
+                }
+
+                row.innerHTML = headerHtml + actionHtml;
+                list.appendChild(row);
+
+                document.getElementById('v65-btn-cp-' + i).onclick = function(){ copyText(t.reason); };
+                document.getElementById('v65-btn-md-' + i).onclick = function(){
+                    t.isRound = !t.isRound;
+                    syncKmByMode(t, false);
+                    recalcAll(tripData);
+                    render();
+                };
+                document.getElementById('v65-btn-gb-' + i).onclick = function(){ grabFromMap(i); };
+                if(document.getElementById('v65-btn-ed-' + i)){
+                    document.getElementById('v65-btn-ed-' + i).onclick = function(){
+                        var v = prompt('請輸入單程公里數：', t.headingKm);
+                        if(v !== null && v !== '' && !isNaN(v)){
+                            t.headingKm = toKmNumber(v);
+                            syncKmByMode(t, false);
+                            t.kmFromReason = false;
+                            t.kmRule = 'manual';
+                            t.kmBadge = '';
+                            recalcAll(tripData);
+                            render();
+                        }
+                    };
+                }
+            });
+        }
+
+        async function grabFromMap(i){
+            var panelState = null;
+            var usedExpandedView = false;
+            try {
+                panelState = await expandFirstRouteDetail();
+                usedExpandedView = !!(panelState && panelState.acted);
+            } catch(_) {
+                panelState = null;
+            }
+
+            var result = null;
+            for(var attempt = 0; attempt < 5; attempt++){
+                result = extractDistanceFromMapText({
+                    requireBottomLeg: true,
+                    strictDetail: true
+                });
+                if(result && result.heading > 0) break;
+                await sleep(220 + attempt * 120);
+            }
+
+            if(result && result.heading > 0){
+                tripData[i].headingKm = toKmNumber(result.heading);
+                tripData[i].baseFullKm = toKmNumber(result.total > 0 ? result.total : result.heading);
+                tripData[i].lastLegKm = toKmNumber(result.bottomLeg > 0 ? result.bottomLeg : deriveLastLegKm(tripData[i].headingKm, tripData[i].baseFullKm));
+                tripData[i].isRound = false;
+                syncKmByMode(tripData[i], false);
+                tripData[i].kmFromReason = false;
+                tripData[i].kmRule = usedExpandedView ? 'map-detail' : 'map';
+                tripData[i].kmBadge = '';
+                recalcAll(tripData);
+                render();
+            } else {
+                tripData[i].kmRule = 'map-miss';
+                alert('這筆地圖里程仍未抓到，請先確認路線列表有顯示距離後再按一次「抓地圖」。');
+            }
+
+            try {
+                await restoreMapToCollapsed(panelState);
+            } catch(_) {}
+        }
+
+        function loadTripsFromRows(rows){
+            tripData = parseTrips(rows || []);
+            recalcAll(tripData);
+            render();
+            var autoCount = tripData.filter(function(t){ return t.kmFromReason; }).length;
+            if(autoCount > 0){
+                alert('已從出差事由自動判讀 ' + autoCount + ' 筆距離，可直接計算車費與雜費。');
+            }
+        }
+
+        function manualPaste(){
+            var v = prompt('請貼上剛剛複製的 JSON：');
+            if(!v) return;
+            try { loadTripsFromRows(JSON.parse(v)); }
+            catch(err){ alert('JSON 格式錯誤'); }
+        }
+
+        document.getElementById('v65-close').onclick = function(){ document.body.removeChild(box); };
+        document.getElementById('v65-paste').onclick = function(){
+            navigator.clipboard.readText().then(function(text){
+                try { loadTripsFromRows(JSON.parse(text)); }
+                catch(e){ manualPaste(); }
+            }).catch(function(){ manualPaste(); });
+        };
+
+        document.getElementById('v65-export').onclick = function(){
+            var out = buildExportData(tripData);
+            if(!out) return;
+            copyText(JSON.stringify(out));
+            alert('已輸出回填 JSON，回到 WebITR 後按「從剪貼簿回填」。');
+        };
+
+        document.getElementById('v65-confirm-all').onclick = function(){
+            var out = buildExportData(tripData);
+            if(!out) return;
+            copyText(JSON.stringify(out));
+            try {
+                localStorage.setItem(V65_PENDING_KEY, JSON.stringify({ createdAt: Date.now(), data: out }));
+                alert('已一鍵確認完成。請回到 WebITR 點書籤，可直接「一鍵全部貼回」。');
+            } catch(e){
+                alert('已複製資料，但瀏覽器不允許暫存待回填內容。請在 WebITR 直接用剪貼簿回填。');
+            }
+        };
+
+        render();
+    } else {
+        var oldItr = document.getElementById('v65-itr');
+        if(oldItr) document.body.removeChild(oldItr);
+
+        var box = document.createElement('div');
+        box.id = 'v65-itr';
+        Object.assign(box.style, {
+            position: 'fixed', top: '10px', right: '10px', width: '360px',
+            backgroundColor: 'white', border: '3px solid #8e44ad', zIndex: '2147483647',
+            borderRadius: '8px', padding: '10px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+            fontFamily: 'Arial, sans-serif'
+        });
+
+        var html = '';
+        html += '<h3 style="margin:0 0 10px 0;color:#8e44ad;text-align:center;">WebITR 回填助手 V66</h3>';
+        html += '<div style="padding:10px;background:#f9f9f9;border-radius:5px;margin-bottom:10px;">';
+        html += '<button id="v65-copy" style="width:100%;padding:10px;background:#8e44ad;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">1) 複製差勤資料</button>';
+        html += '</div>';
+        html += '<div style="padding:10px;background:#f0fbf5;border-radius:5px;">';
+        html += '<div style="font-weight:bold;font-size:12px;color:#2c3e50;margin-bottom:5px;">2) 回填資料</div>';
+        html += '<button id="v65-autofill" style="width:100%;padding:12px;background:#27ae60;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:bold;font-size:14px;">從剪貼簿回填</button>';
+        html += '<button id="v65-pending-fill" style="width:100%;margin-top:6px;padding:10px;background:#16a085;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">✅ 一鍵全部貼回</button>';
+        html += '<div id="v65-pending-tip" style="font-size:11px;color:#7f8c8d;margin-top:5px;">正在檢查待回填資料...</div>';
+        html += '<div id="v65-fallback" style="display:none;margin-top:10px;">';
+        html += '<div style="font-size:11px;color:#c0392b;margin-bottom:3px;">剪貼簿失敗時，請手動貼上 JSON：</div>';
+        html += '<textarea id="v65-json-input" style="width:95%;height:60px;border:1px solid #ccc;font-size:11px;"></textarea>';
+        html += '<button id="v65-manual-fill" style="width:100%;margin-top:5px;padding:8px;background:#95a5a6;color:white;border:none;border-radius:4px;cursor:pointer;">手動回填</button>';
+        html += '</div></div>';
+        html += '<button id="v65-close-itr" style="width:100%;margin-top:10px;padding:5px;background:#eee;border:none;cursor:pointer;">關閉</button>';
+
+        box.innerHTML = html;
+        document.body.appendChild(box);
+        function getPendingFillData(){
+            try {
+                var raw = localStorage.getItem(V65_PENDING_KEY);
+                if(!raw) return null;
+                var parsed = JSON.parse(raw);
+                if(Array.isArray(parsed)) return parsed;
+                if(parsed && Array.isArray(parsed.data)) return parsed.data;
+                return null;
+            } catch(e){ return null; }
+        }
+
+        function clearPendingFillData(){
+            try { localStorage.removeItem(V65_PENDING_KEY); } catch(e) {}
+        }
+
+        function refreshPendingTip(){
+            var tip = document.getElementById('v65-pending-tip');
+            var btn = document.getElementById('v65-pending-fill');
+            if(!tip || !btn) return;
+            var pending = getPendingFillData();
+            if(pending && pending.length > 0){
+                tip.textContent = '已偵測待回填 ' + pending.length + ' 筆，可直接一鍵貼回';
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            } else {
+                tip.textContent = '目前沒有待回填資料';
+                btn.disabled = true;
+                btn.style.opacity = '0.6';
+            }
+        }
+
+        function setVal(el, val){
+            if(!el) return;
+            el.value = val;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+            el.dispatchEvent(new Event('blur', { bubbles: true }));
+            el.style.backgroundColor = '#d5f5e3';
+        }
+
+        function doFill(jsonStr, options){
+            options = options || {};
+            try {
+                var fillData = JSON.parse(jsonStr);
+                if(!Array.isArray(fillData)) throw new Error('not-array');
+                if(!confirm('將回填 ' + fillData.length + ' 筆資料。\\n\\n請先確認目前 WebITR 的差勤列順序正確。')) return;
+
+                var allTr = Array.from(document.querySelectorAll('tr')).filter(function(tr){
+                    return tr.style.display !== 'none' && tr.querySelector('input[type=text], textarea');
+                });
+                var normalizedRows = allTr.map(function(tr){ return tr.innerText.replace(/\\s+/g, ''); });
+                var used = {};
+                var count = 0;
+
+                fillData.forEach(function(item, index){
+                    var targetIdx = -1;
+                    var keys = [
+                        item && item.reasonKey ? String(item.reasonKey) : '',
+                        item && item.rawReason ? String(item.rawReason) : ''
+                    ].map(function(v){ return v.replace(/\\s+/g, ''); }).filter(function(v){ return v.length >= 4; });
+
+                    for(var i = 0; i < keys.length; i++){
+                        var key = keys[i];
+                        for(var rIdx = 0; rIdx < normalizedRows.length; rIdx++){
+                            if(used[rIdx]) continue;
+                            if(normalizedRows[rIdx].indexOf(key) > -1){
+                                targetIdx = rIdx;
+                                break;
+                            }
+                        }
+                        if(targetIdx > -1) break;
+                    }
+
+                    if(targetIdx === -1){
+                        if(index >= allTr.length || used[index]) return;
+                        targetIdx = index;
+                    }
+
+                    var tr = allTr[targetIdx];
+                    used[targetIdx] = true;
+                    var inps = Array.from(tr.querySelectorAll('input[type=text], textarea'));
+                    var len = inps.length;
+                    if(len < 10) return;
+
+                    var noteInput = inps[len - 4];
+                    var miscInput = inps[len - 6];
+                    var scooterInput = inps[len - 8];
+                    var carInput = inps[len - 9];
+
+                    if(noteInput) setVal(noteInput, item.note || '');
+                    if(miscInput) setVal(miscInput, item.misc || 0);
+                    if(scooterInput) setVal(scooterInput, item.scooter || 0);
+                    if(carInput) setVal(carInput, item.car || 0);
+                    tr.style.borderLeft = '5px solid #27ae60';
+                    count++;
+                });
+
+                if(options.clearPending && count > 0){
+                    clearPendingFillData();
+                    refreshPendingTip();
+                }
+                alert('回填完成，共 ' + count + ' 筆。');
+            } catch(e){
+                alert('JSON 格式錯誤');
+            }
+        }
+
+        document.getElementById('v65-close-itr').onclick = function(){ document.body.removeChild(box); };
+document.getElementById('v65-copy').onclick = function(){
+            var trips = normalizeTripRows(extractTripCandidatesFromPage());
+
+            if(trips.length === 0){
+                alert('找不到可複製的差勤資料');
+                return;
+            }
+            copyText(JSON.stringify(trips));
+            alert('已複製 ' + trips.length + ' 筆差勤資料');
+        };
+
+        document.getElementById('v65-autofill').onclick = function(){
+            navigator.clipboard.readText().then(function(text){
+                doFill(text);
+            }).catch(function(){
+                document.getElementById('v65-fallback').style.display = 'block';
+            });
+        };
+
+        document.getElementById('v65-manual-fill').onclick = function(){
+            var val = document.getElementById('v65-json-input').value;
+            if(val) doFill(val);
+        };
+
+        document.getElementById('v65-pending-fill').onclick = function(){
+            var pending = getPendingFillData();
+            if(!pending || pending.length === 0){
+                refreshPendingTip();
+                alert('目前沒有待回填資料');
+                return;
+            }
+            doFill(JSON.stringify(pending), { clearPending: true });
+        };
+
+        refreshPendingTip();
+        var bootPending = getPendingFillData();
+        if(bootPending && bootPending.length > 0){
+            setTimeout(function(){
+                if(confirm('偵測到已確認的 ' + bootPending.length + ' 筆資料，是否立即一鍵貼回？')){
+                    doFill(JSON.stringify(bootPending), { clearPending: true });
+                }
+            }, 150);
+        }
+    }
+})();
+void(0);`;
+
+const v65Raw = v65Template.replace(/\\\\/g, '\\');
+
+var compact = String(v65Raw || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s*([{}();,:])\s*/g, '$1')
+    .replace(/\s*([=+\-*<>?&|])\s*/g, '$1')
+    .trim();
+
+function buildBookmarkletPayload(s){
+    return String(s || '').replace(/#/g, '%23');
+}
+
+var bookmarkletHref = "javascript:" + buildBookmarkletPayload(compact);
+document.getElementById('theBookmark').href = bookmarkletHref;
+</script>
+</body>
+</html>
