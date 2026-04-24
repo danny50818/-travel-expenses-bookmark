@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>差旅費核銷系統 (V34 書籤自動填入版)</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", Arial, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; }
+        .container { max-width: 1800px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h2 { text-align: center; color: #2c3e50; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 15px; }
+        
+        .section { margin-bottom: 25px; padding: 20px; border-radius: 8px; border: 1px solid #e1e1e1; }
+        .sec-import { background: #eafaf1; border-color: #27ae60; border-style: dashed; border-width: 2px; }
+        .sec-export { background: #fff8e1; border-color: #f1c40f; border-style: solid; border-width: 2px; }
+        
+        textarea.import-area { width: 100%; height: 80px; padding: 10px; border: 1px solid #bdc3c7; border-radius: 5px; font-family: monospace; font-size: 0.9em; }
+        textarea.gmap-paste { 
+            width: 95%; height: 35px; padding: 5px; 
+            border: 1px solid #3498db; border-radius: 4px; 
+            background-color: #f4faff; font-size: 0.8em; resize: none; transition: height 0.2s;
+        }
+        textarea.gmap-paste:focus { height: 100px; box-shadow: 0 0 8px rgba(52,152,219,0.4); }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; background: white; }
+        th { background-color: #34495e; color: white; padding: 10px 5px; position: sticky; top: 0; z-index: 10; text-align: center;}
+        td { border-bottom: 1px solid #eee; padding: 8px 5px; vertical-align: middle; text-align: center;}
+        tr:hover { background-color: #f8f9fa; }
+
+        .btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; transition: 0.2s;}
+        .btn-import { background: #27ae60; width: 100%; font-size: 1.1em; }
+        .btn-del { background: #e74c3c; padding: 4px 8px; font-size: 0.8em; }
+        
+        /* 書籤按鈕樣式 */
+        .bookmarklet-btn {
+            display: inline-block; padding: 15px 30px; background-color: #2c3e50; color: white; 
+            text-decoration: none; border-radius: 8px; font-weight: bold; cursor: grab;
+            border: 3px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.2); font-size: 1.1em;
+        }
+        .bookmarklet-btn:hover { background-color: #34495e; transform: translateY(-2px); }
+        .bookmarklet-btn:active { cursor: grabbing; }
+
+        input.result-text { width: 95%; padding: 5px; font-size: 0.85em; border: 1px solid #bdc3c7; background: #eee; color: #333; cursor: copy; font-weight: bold; }
+        input.result-text:hover { background: #e8f8f5; border-color: #1abc9c; }
+
+        .fee-cell { font-weight: bold; font-size: 1.1em; cursor: pointer; transition: background 0.2s; border-radius: 4px; padding: 5px; }
+        .fee-cell:hover { background-color: #fcf3cf; box-shadow: 0 0 3px #f1c40f; }
+        .fee-trans { color: #2980b9; }
+        .fee-misc { color: #d35400; }
+        .fee-adjusted { color: #c0392b !important; text-decoration: underline dotted; }
+        .warning-bg { background-color: #fdebd0; }
+        
+        .daily-limit-box { text-align: left; font-size: 0.85em; color: #555; background: #fff8e1; padding: 5px; border-radius: 4px; border: 1px solid #f1c40f; }
+        .copy-btn { cursor: pointer; background: white; border: 1px solid #aaa; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #d35400; margin-left: 5px; }
+        .config-label { font-size: 0.8em; color: #666; cursor: pointer; display: block; margin-top: 3px; font-weight:bold; color:#2c3e50;}
+        .config-label input { vertical-align: middle; margin-right: 3px; }
+        .calc-info { font-size: 0.75em; color: #27ae60; font-weight: bold; display: block; margin-top: 2px;}
+
+        .grand-total { position: sticky; bottom: 0; background: #2c3e50; color: white; padding: 15px; text-align: right; font-size: 1.2em; font-weight: bold; border-radius: 5px; margin-top: 10px; z-index: 100;}
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>差旅費核銷系統 (V34 書籤自動填入版)</h2>
+
+    <div class="section sec-import">
+        <h3 style="margin:0 0 10px 0; color:#27ae60;">步驟 1：匯入差勤資料</h3>
+        <textarea class="import-area" id="importText" placeholder="請全選複製 WebITR 網頁上的表格內容..."></textarea>
+        <button class="btn btn-import" onclick="parseImport()">⚡ 解析並建立行程表</button>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table id="tripTable">
+            <thead>
+                <tr>
+                    <th width="4%">刪</th>
+                    <th width="8%">日期</th>
+                    <th width="6%">時數</th>
+                    <th width="8%">車種</th>
+                    <th width="12%">事由 (錨點)</th>
+                    <th width="20%">Google Maps 詳細文字<br><span style="font-size:0.7em; font-weight:normal; color:#bdc3c7;">(頭尾直算/去重)</span></th>
+                    <th width="8%">設定</th>
+                    <th width="18%">產出文字</th>
+                    <th width="6%">車資</th>
+                    <th width="6%">雜費</th>
+                    <th width="10%">當日上限/說明</th>
+                </tr>
+            </thead>
+            <tbody id="tripBody"></tbody>
+        </table>
+    </div>
+
+    <div class="section sec-export" style="margin-top:20px;">
+        <h3 style="margin:0 0 10px 0; color:#d35400;">步驟 4：產生神填書籤 (混合定位)</h3>
+        <div style="font-size:0.95em; color:#333; margin-bottom:10px; line-height:1.6;">
+            <b>使用說明：</b><br>
+            1. 將下方的 <b>[⚡ V34 自動填入]</b> 按鈕拖曳到您的瀏覽器書籤列。<br>
+            2. 回到差勤系統，點開所有申請按鈕。<br>
+            3. 點擊書籤，並依畫面指示操作。<br>
+            <span style="color:#e74c3c;">* 系統將優先使用內容比對，若比對失敗則使用順序補位，確保資料 100% 填入。</span>
+        </div>
+        <div id="bookmarkletContainer" style="text-align:center; padding:20px;">
+            </div>
+    </div>
+
+    <div class="grand-total">
+        車資總計 $<span id="sumTrans">0</span> + 
+        雜費總計(依日上限) $<span id="sumMisc">0</span> = 
+        總請款金額 $<span id="sumGrand">0</span>
+    </div>
+</div>
+
+<script>
+    let tripData = [];
+
+    // --- 解析與計算邏輯 (V22) ---
+    function parseImport() {
+        const text = document.getElementById('importText').value;
+        const tbody = document.getElementById('tripBody');
+        tbody.innerHTML = "";
+        tripData = [];
+        if (!text.trim()) { alert("請先貼上資料"); return; }
+        
+        const rowRegex = /(\d+\s*元)?\s*(\d{1,2}-\d{1,2}).*?(\d{2}:\d{2})\s*~\s*(\d{1,2}-\d{1,2}).*?(\d{2}:\d{2})/g;
+        let matches = [];
+        let match;
+        while ((match = rowRegex.exec(text)) !== null) {
+            matches.push({
+                fullMatch: match[0], date: match[2], start: match[3], end: match[5],
+                index: match.index, endIndex: match.index + match[0].length
+            });
+        }
+        matches.forEach((m, i) => {
+            let contentStart = m.endIndex;
+            let contentEnd = (i < matches.length - 1) ? matches[i+1].index : text.length;
+            let content = text.substring(contentStart, contentEnd).trim();
+            let vehicle = 'car';
+            if (content.includes('機車')) vehicle = 'scooter';
+            else if (content.includes('公務車') || content.includes('客運')) vehicle = 'official';
+            let reason = content.replace(/^\d+\s*元/, '').trim();
+            const parenIndex = content.lastIndexOf(')');
+            if (parenIndex !== -1 && parenIndex < content.length - 1) reason = content.substring(parenIndex + 1).trim();
+            let isRoundTrip = false; 
+            if (content.includes('桃園') && content.lastIndexOf('桃園') > 5) isRoundTrip = true;
+            const id = 'row-' + Date.now() + '-' + i;
+            tripData.push({
+                id: id, date: m.date, start: m.start, end: m.end, reason: reason,
+                vehicle: vehicle, isRoundTrip: isRoundTrip, gmapText: "", 
+                oneWayKm: 0, totalKm: 0, transportFee: 0, singleTripMisc: 0, finalMisc: 0, logicMsg: "", outputText: ""
+            });
+        });
+        if (tripData.length === 0) alert("無法辨識資料格式");
+        renderTrips(); calculateAll();
+    }
+
+    function renderTrips() {
+        const tbody = document.getElementById('tripBody');
+        tbody.innerHTML = "";
+        tripData.forEach(trip => {
+            const tr = document.createElement('tr');
+            tr.id = trip.id;
+            let vSelect = `
+                <select onchange="updateVehicle('${trip.id}', this.value)" style="padding:2px; width:100%;">
+                    <option value="car" ${trip.vehicle==='car'?'selected':''}>汽車($3)</option>
+                    <option value="scooter" ${trip.vehicle==='scooter'?'selected':''}>機車($2)</option>
+                    <option value="official" ${trip.vehicle==='official'?'selected':''}>公務車($0)</option>
+                </select>`;
+            let duration = getDuration(trip.start, trip.end);
+            tr.innerHTML = `
+                <td><button class="btn btn-del" onclick="removeTrip('${trip.id}')">X</button></td>
+                <td style="font-weight:bold; color:#2c3e50;">${trip.date}</td>
+                <td style="color:#2980b9;">${duration.toFixed(1)} hr</td>
+                <td>${vSelect}</td>
+                <td style="text-align:left; font-size:0.85em;">${trip.reason}</td>
+                <td>
+                    <textarea class="gmap-paste" placeholder="貼上 Google Maps..." oninput="processMapText('${trip.id}', this.value)">${trip.gmapText}</textarea>
+                    <span class="calc-info" id="info-${trip.id}"></span>
+                </td>
+                <td style="text-align:center;">
+                    <label class="config-label"><input type="checkbox" ${trip.isRoundTrip ? '' : 'checked'} onchange="updateRoundTrip('${trip.id}', !this.checked)">原路返回(x2)</label>
+                </td>
+                <td><input type="text" class="result-text" id="out-${trip.id}" readonly value="" onclick="copyOutput(this)"></td>
+                <td class="fee-cell fee-trans" id="trans-${trip.id}" onclick="copyNum(this)" title="點擊複製">$0</td>
+                <td class="fee-cell fee-misc" id="misc-${trip.id}" onclick="copyNum(this)" title="點擊複製">$0</td>
+                <td id="limit-${trip.id}" style="vertical-align:top;"></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function removeTrip(id) { tripData = tripData.filter(t => t.id !== id); renderTrips(); calculateAll(); }
+    function updateVehicle(id, val) { const trip = tripData.find(t => t.id === id); if(trip) { trip.vehicle = val; recalculateSingleTrip(trip); calculateAll(); } }
+    function updateRoundTrip(id, isRound) { const trip = tripData.find(t => t.id === id); if(trip) { trip.isRoundTrip = isRound; recalculateSingleTrip(trip); calculateAll(); } }
+    function processMapText(id, text) { const trip = tripData.find(t => t.id === id); if(trip) { trip.gmapText = text; recalculateSingleTrip(trip); calculateAll(); } }
+
+    function recalculateSingleTrip(trip) {
+        const regex = /\(([\d.]+)\s*(公里|公尺)\)/g;
+        let matches = []; let match;
+        const text = trip.gmapText;
+        while ((match = regex.exec(text)) !== null) {
+            let val = parseFloat(match[1]); const unit = match[2];
+            if (unit === '公尺') val = val / 1000;
+            matches.push(val);
+        }
+        if (matches.length === 0) {
+            const num = parseFloat(text);
+            if(!isNaN(num) && text.length < 10) matches.push(num);
+            else { trip.oneWayKm=0; trip.totalKm=0; updateFee(trip); return; }
+        }
+        const firstVal = matches[0]; const lastVal = matches[matches.length - 1];
+        let oneWay = 0; let totalRaw = 0;
+        if (matches.length >= 2 && firstVal > lastVal) {
+            oneWay = parseFloat((firstVal - lastVal).toFixed(2));
+            totalRaw = firstVal;
+            trip.logicMsg = `頭尾相減`;
+        } else {
+            let cleanSegments = [];
+            matches.forEach(val => {
+                let currentSum = 0; let foundSubset = false; let removeCount = 0;
+                for (let i = cleanSegments.length - 1; i >= 0 && i >= cleanSegments.length - 20; i--) {
+                    currentSum += cleanSegments[i]; removeCount++;
+                    let tolerance = 0.1; if (removeCount > 1) tolerance = 0.5; if (val > 50) tolerance = 2.0;
+                    if (Math.abs(currentSum - val) <= tolerance) { foundSubset = true; break; }
+                }
+                if (foundSubset) { cleanSegments.splice(cleanSegments.length - removeCount, removeCount); cleanSegments.push(val); }
+                else { cleanSegments.push(val); }
+            });
+            let allLegsTotal = cleanSegments.reduce((a,b)=>a+b, 0);
+            if (cleanSegments.length > 1) {
+                const lastLeg = cleanSegments[cleanSegments.length - 1];
+                oneWay = parseFloat((allLegsTotal - lastLeg).toFixed(2));
+            } else { oneWay = parseFloat(allLegsTotal.toFixed(2)); }
+            totalRaw = parseFloat(allLegsTotal.toFixed(2));
+            trip.logicMsg = `累加`;
+        }
+        if (oneWay < 0) oneWay = 0;
+        trip.oneWayKm = oneWay;
+        if (!trip.isRoundTrip) trip.totalKm = parseFloat((oneWay * 2).toFixed(2));
+        else trip.totalKm = parseFloat(totalRaw.toFixed(2));
+        
+        const infoEl = document.getElementById(`info-${trip.id}`);
+        if(infoEl) infoEl.innerText = `認定全程: ${trip.totalKm} KM`;
+        updateFee(trip);
+    }
+
+    function updateFee(trip) {
+        if (trip.vehicle === 'official') trip.transportFee = 0;
+        else { const rate = (trip.vehicle === 'car') ? 3 : 2; trip.transportFee = Math.floor(trip.totalKm * rate); }
+        let duration = getDuration(trip.start, trip.end);
+        let miscFee = 0;
+        if (trip.oneWayKm >= 5 && duration > 0) {
+            const isLong = duration > 4;
+            if (trip.oneWayKm < 30) miscFee = isLong ? 200 : 100;
+            else if (trip.oneWayKm < 60) miscFee = isLong ? 300 : 150;
+            else miscFee = isLong ? 400 : 200;
+        }
+        trip.singleTripMisc = miscFee; trip.finalMisc = miscFee;
+        trip.outputText = `單程${trip.oneWayKm.toFixed(1)}KM/全程${trip.totalKm.toFixed(1)}KM`;
+        const outInput = document.getElementById(`out-${trip.id}`);
+        if(outInput) outInput.value = trip.outputText;
+    }
+
+    function calculateAll() {
+        const totalTrans = tripData.reduce((sum, t) => sum + t.transportFee, 0);
+        document.getElementById('sumTrans').innerText = totalTrans;
+        let dailyStats = {};
+        tripData.forEach(trip => {
+            if (!dailyStats[trip.date]) dailyStats[trip.date] = { totalHours: 0, maxOneWay: 0, trips: [], limit: 0 };
+            const day = dailyStats[trip.date];
+            day.totalHours += getDuration(trip.start, trip.end);
+            if (trip.oneWayKm > day.maxOneWay) day.maxOneWay = trip.oneWayKm;
+            day.trips.push(trip);
+        });
+        let grandTotalMisc = 0;
+        Object.values(dailyStats).forEach(day => {
+            let limit = 0;
+            if (day.maxOneWay >= 5) {
+                const isDayLong = day.totalHours > 4;
+                if (day.maxOneWay < 30) limit = isDayLong ? 200 : 100;
+                else if (day.maxOneWay < 60) limit = isDayLong ? 300 : 150;
+                else limit = isDayLong ? 400 : 200;
+            }
+            day.limit = limit; grandTotalMisc += limit;
+            let currentSum = day.trips.reduce((s, t) => s + t.singleTripMisc, 0);
+            let excess = currentSum - limit;
+            day.trips.forEach(t => t.finalMisc = t.singleTripMisc);
+            if (excess > 0) {
+                let candidates = day.trips.filter(t => t.singleTripMisc > 0);
+                if (candidates.length > 0) {
+                    let victim = candidates[candidates.length - 1];
+                    if (victim.finalMisc >= excess) victim.finalMisc -= excess;
+                    else {
+                        let remainingExcess = excess;
+                        for (let i = candidates.length - 1; i >= 0; i--) {
+                            let t = candidates[i];
+                            if (remainingExcess <= 0) break;
+                            let deduct = Math.min(t.finalMisc, remainingExcess);
+                            t.finalMisc -= deduct; remainingExcess -= deduct;
+                        }
+                    }
+                }
+            }
+        });
+        tripData.forEach(trip => {
+            const day = dailyStats[trip.date];
+            const tr = document.getElementById(trip.id);
+            document.getElementById(`trans-${trip.id}`).innerText = `$${trip.transportFee}`;
+            const miscCell = document.getElementById(`misc-${trip.id}`);
+            miscCell.innerText = `$${trip.finalMisc}`;
+            if (trip.finalMisc !== trip.singleTripMisc) { miscCell.classList.add('fee-adjusted'); miscCell.title = "已自動扣減"; }
+            else { miscCell.classList.remove('fee-adjusted'); miscCell.title = "點擊複製"; }
+            if (day.trips.length > 1) tr.classList.add('warning-bg'); else tr.classList.remove('warning-bg');
+            document.getElementById(`limit-${trip.id}`).innerHTML = `<div class="daily-limit-box"><div>總時:${day.totalHours.toFixed(1)}hr</div><div>最遠:${day.maxOneWay.toFixed(1)}km</div><div style="border-top:1px solid #ddd;font-weight:bold;color:#d35400;">日上限:$${day.limit}</div></div>`;
+        });
+        document.getElementById('sumMisc').innerText = grandTotalMisc;
+        document.getElementById('sumGrand').innerText = totalTrans + grandTotalMisc;
+        
+        updateBookmarklet();
+    }
+
+    function getDuration(start, end) {
+        if(!start || !end) return 0;
+        const d1 = new Date(`2000-01-01T${start}`); const d2 = new Date(`2000-01-01T${end}`);
+        let h = (d2 - d1) / (1000 * 60 * 60); if (h < 0) h += 24; return h;
+    }
+    function copyOutput(input) { input.select(); document.execCommand("copy"); flashEffect(input); }
+    function copyNum(el) { const text = el.innerText.replace(/[^\d.]/g, ''); navigator.clipboard.writeText(text); flashEffect(el); }
+    function flashEffect(el) { const org = el.style.backgroundColor; el.style.backgroundColor = "#f1c40f"; setTimeout(() => el.style.backgroundColor = org, 200); }
+
+    // --- V33: 混合雙軌定位腳本 ---
+    function updateBookmarklet() {
+        const exportData = tripData.map(t => ({
+            reason: t.reason,
+            carFee: t.vehicle === 'car' ? t.transportFee : 0,
+            scooterFee: t.vehicle === 'scooter' ? t.transportFee : 0,
+            miscFee: t.finalMisc,
+            note: t.outputText
+        }));
+
+        const scriptCode = `javascript:(function(){
+    var data = ${JSON.stringify(exportData)};
+    var box = document.createElement('div');
+    Object.assign(box.style, {
+        position: 'fixed', top: '10px', right: '10px', width: '340px',
+        backgroundColor: 'white', border: '3px solid #2c3e50', zIndex: '99999',
+        borderRadius: '8px', padding: '15px', boxShadow: '0 5px 20px rgba(0,0,0,0.4)',
+        fontFamily: 'Arial', textAlign: 'center'
+    });
+    
+    box.innerHTML = '<h3 style="margin:0 0 10px 0; color:#2c3e50;">⚡ V34 自動填入系統</h3><p style="font-size:12px; color:#555; text-align:left;">1. 請將所有行程的 [申請] 按鈕點開。<br>2. 點擊下方按鈕。<br>3. 系統將使用 [內容比對] + [順序補位] 確保 100% 填寫。</p>';
+
+    const btnBatch = document.createElement('button');
+    btnBatch.innerText = '⚡ 執行填寫 (Hybrid Mode)';
+    Object.assign(btnBatch.style, {
+        backgroundColor: '#2c3e50', color: 'white', border: 'none', width: '100%',
+        padding: '12px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px'
+    });
+    
+    btnBatch.onclick = function() {
+        if(confirm('偵測到 ' + data.length + ' 筆資料。\\n將採用雙軌機制填寫。\\n確定開始嗎？')) {
+            executeHybridFill();
+        }
+    };
+    
+    box.appendChild(btnBatch);
+    const closeBtn = document.createElement('button');
+    closeBtn.innerText = '關閉';
+    Object.assign(closeBtn.style, { marginTop: '10px', width: '100%', cursor:'pointer' });
+    closeBtn.onclick = () => document.body.removeChild(box);
+    box.appendChild(closeBtn);
+    document.body.appendChild(box);
+
+    function executeHybridFill() {
+        let successCount = 0;
+        let matchedRows = new Set(); 
+
+        // 1. 取得所有可見的資料列
+        // 假設有輸入框的 TR 才是資料列
+        const allRows = Array.from(document.querySelectorAll('tr')).filter(tr => {
+            return tr.style.display !== 'none' && tr.querySelector('input[type="text"], textarea');
+        });
+
+        data.forEach((item, index) => {
+            let targetRow = null;
+            let anchorIndex = -1;
+
+            // --- 策略 A: 內容比對 (Content Match) ---
+            for (let tr of allRows) {
+                if (matchedRows.has(tr)) continue; // 跳過已填過的
+
+                const inputs = Array.from(tr.querySelectorAll('input[type="text"], textarea'));
+                
+                // 尋找內容包含事由的輸入框
+                const foundInput = inputs.find(el => {
+                    const val = normalize(el.value);
+                    const reason = normalize(item.reason);
+                    return val && reason && (val === reason || (val.length > 2 && reason.includes(val)));
+                });
+
+                if (foundInput) {
+                    targetRow = tr;
+                    const tds = Array.from(tr.children);
+                    const anchorTd = foundInput.closest('td');
+                    anchorIndex = tds.indexOf(anchorTd);
+                    break;
+                }
+            }
+
+            // --- 策略 B: 順序補位 (Index Fallback) ---
+            // 如果內容比對失敗 (例如第一筆)，則直接拿「第 index 筆」未使用的資料列
+            if (!targetRow) {
+                // 找出還沒被使用的第一列
+                const availableRow = allRows.find(tr => !matchedRows.has(tr));
+                if (availableRow) {
+                    targetRow = availableRow;
+                    // 由於沒有錨點，我們假設事由欄位的位置
+                    // 通常 WebITR 的事由是倒數第 2 或第 3 個輸入框，這裡我們嘗試用「倒推法」
+                    // 或者更安全的：重新搜尋該列的輸入框，通常事由是最長的那個，或是特定位置
+                    // 這裡採用 V32 的假設：事由在右側，費用在左側。
+                    // 為了安全，我們假設結構固定：
+                    // 我們需要找到 "事由" 所在的 TD index，才能往左推。
+                    // 這裡我們嘗試找該列中 "value 不為空" 的最後一個文字框當作事由錨點
+                    const inputs = Array.from(targetRow.querySelectorAll('input[type="text"], textarea'));
+                    const candidate = inputs[inputs.length - 1]; // 假設事由在後面
+                    if(candidate) {
+                        const tds = Array.from(targetRow.children);
+                        anchorIndex = tds.indexOf(candidate.closest('td'));
+                    }
+                }
+            }
+
+            // --- 執行填寫 ---
+            if (targetRow && anchorIndex !== -1) {
+                matchedRows.add(targetRow); // 標記為已使用
+                
+                const tds = Array.from(targetRow.children);
+                
+                // 相對位置 (WebITR 常見結構)
+                // Anchor(事由) -> 左1(備註) -> 左3(雜費) -> 左5(機車) -> 左6(汽車)
+                const noteTd = tds[anchorIndex - 1];
+                const miscTd = tds[anchorIndex - 3];
+                const scooterTd = tds[anchorIndex - 5];
+                const carTd = tds[anchorIndex - 6];
+
+                if (noteTd) fillInput(noteTd, item.note);
+                if (miscTd) fillInput(miscTd, item.miscFee);
+                if (scooterTd) fillInput(scooterTd, item.scooterFee);
+                if (carTd) fillInput(carTd, item.carFee);
+
+                successCount++;
+                
+                // 視覺回饋: 標記該列已被處理
+                targetRow.style.borderLeft = "5px solid #2c3e50";
+            }
+        });
+
+        alert('✅ 填寫完成！共填入 ' + successCount + ' 筆資料。');
+    }
+
+    function normalize(str) {
+        return str ? str.replace(/\\s+/g, '').trim() : '';
+    }
+
+    function fillInput(td, value) {
+        const input = td.querySelector('input:not([type="hidden"]), textarea, select');
+        if (input) {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.dispatchEvent(new Event('blur', { bubbles: true }));
+            input.style.backgroundColor = '#d5f5e3';
+        }
+    }
+})();`;
+
+        const container = document.getElementById('bookmarkletContainer');
+        container.style.display = 'block';
+        container.innerHTML = `<a href="${encodeURI(scriptCode)}" class="bookmarklet-btn" title="拖曳我到書籤列">⚡ V34 自動填入 (拖曳到書籤列)</a>`;
+    }
+</script>
+
+</body>
+</html>
